@@ -2,10 +2,7 @@
 #
 # Prerequisites:
 # 1. Host must have a LAN interface (update 'parent' below to match)
-# 2. After container starts, apply ip rule fix:
-#    PID=$(docker inspect -f '{{.State.Pid}}' cryze_v2-main-cryze_android_app-1)
-#    nsenter -t $PID -n ip rule del from all unreachable
-#    nsenter -t $PID -n ip rule add from all lookup main prio 31000
+# 2. ip rule fix and service stripping are automated in ensure_running.sh
 #
 # Usage:
 #   docker compose -f docker-compose.macvlan-only.yml up -d --build
@@ -49,6 +46,11 @@ services:
       - androidboot.redroid_net_dns1=10.10.0.1
       - androidboot.redroid_net_dns2=8.8.8.8
       - androidboot.redroid_gpu_mode=guest
+      # Memory optimizations
+      - androidboot.zygote=zygote64 # 64-bit only, skip 32-bit runtime (~197MB saved)
+      - ro.config.low_ram=true # Reduce system allocations
+      - dalvik.vm.heapsize=256m # Cap Dalvik heap
+      - dalvik.vm.heapgrowthlimit=128m # Limit per-app heap growth
   cryze_api:
     restart: unless-stopped
     volumes:

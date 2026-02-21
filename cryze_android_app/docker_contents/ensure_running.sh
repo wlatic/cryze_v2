@@ -53,6 +53,36 @@ for pkg in $DISABLE_PKGS; do
     pm disable-user --user 0 $pkg 2>/dev/null && logwrapper "Disabled $pkg"
 done
 
+#=============================================
+# Stop unnecessary HAL/system services
+# These consume ~100MB+ combined and serve no
+# purpose in a headless streaming container
+#=============================================
+logwrapper "Stopping unnecessary HAL services"
+STOP_SERVICES="
+vendor.bluetooth-1-1
+vendor.gnss-2-1
+vendor.wifi_hal_legacy
+wificond
+vendor.ril-daemon
+vendor.sensors-hal-2-1-mock
+vendor.audio-hal
+audioserver
+cameraserver
+vendor.cas-hal-1-2
+mediadrm
+mediametrics
+incidentd
+statsd
+traced
+traced_probes
+mdnsd
+"
+for svc in $STOP_SERVICES; do
+    setprop ctl.stop $svc 2>/dev/null
+done
+logwrapper "HAL services stopped"
+
 if [ -f "/app/app.apk" ]; then
     logwrapper "Installing cryze with full permissions"
     pm install --abi arm64-v8a -g --full /app/app.apk >> /dockerlogs # log the install to docker logs
