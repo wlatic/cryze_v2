@@ -1,4 +1,4 @@
-notice: 🪦 - I will be archiving this project soon, as I do not own any wyze cameras at this point and the native library needs to be updated and I have nothing to test with. sorry. if someone wants to take this over, file an issue and we'll figure it out.
+This is a continuation and optimization of the original Cryze V2 addon.
 
 Hello!
 
