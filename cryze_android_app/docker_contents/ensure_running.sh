@@ -12,6 +12,47 @@ if [ "`getprop breakloop`" -eq 1 ]; then
     exit 0;
 fi
 
+#=============================================
+# Fix Android policy routing for macvlan LAN
+# Android adds "32000: from all unreachable" which blocks traffic not
+# matching fwmark-based rules. Remove it and add fallback to main table.
+#=============================================
+logwrapper "Applying ip rule fix for macvlan networking"
+ip rule del from all unreachable 2>/dev/null
+ip rule add from all lookup main prio 31000 2>/dev/null
+logwrapper "ip rule fix applied"
+
+#=============================================
+# Disable unnecessary Android services/packages
+# Saves ~1.5GB RAM in a headless container
+#=============================================
+logwrapper "Disabling unnecessary Android packages"
+DISABLE_PKGS="
+com.android.systemui
+com.android.launcher3
+com.android.settings
+com.android.phone
+com.android.bluetooth
+com.android.inputmethod.latin
+com.android.providers.media.module
+com.android.gallery3d
+com.android.camera2
+com.android.deskclock
+com.android.printspooler
+com.android.providers.calendar
+com.android.calendar
+com.android.providers.contacts
+com.android.contacts
+com.android.dialer
+com.android.messaging
+com.android.documentsui
+com.android.email
+com.android.music
+"
+for pkg in $DISABLE_PKGS; do
+    pm disable-user --user 0 $pkg 2>/dev/null && logwrapper "Disabled $pkg"
+done
+
 if [ -f "/app/app.apk" ]; then
     logwrapper "Installing cryze with full permissions"
     pm install --abi arm64-v8a -g --full /app/app.apk >> /dockerlogs # log the install to docker logs
