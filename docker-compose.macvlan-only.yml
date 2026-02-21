@@ -1,0 +1,69 @@
+# Macvlan-only deployment for direct LAN camera streaming
+#
+# Prerequisites:
+# 1. Host must have a LAN interface (update 'parent' below to match)
+# 2. After container starts, apply ip rule fix:
+#    PID=$(docker inspect -f '{{.State.Pid}}' cryze_v2-main-cryze_android_app-1)
+#    nsenter -t $PID -n ip rule del from all unreachable
+#    nsenter -t $PID -n ip rule add from all lookup main prio 31000
+#
+# Usage:
+#   docker compose -f docker-compose.macvlan-only.yml up -d --build
+
+networks:
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: ens18 # Change to your host's LAN interface name
+    ipam:
+      config:
+        - subnet: 10.10.0.0/16 # Your LAN subnet
+          gateway: 10.10.0.1 # Your LAN gateway
+          ip_range: 10.10.20.208/29 # Small range for containers
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    network_mode: service:cryze_android_app
+    privileged: true
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: 10.10.20.215
+  cryze_android_app:
+    restart: unless-stopped
+    depends_on:
+      cryze_api:
+        condition: service_healthy
+    networks:
+      lan:
+        ipv4_address: 10.10.20.215
+    build:
+      context: ./cryze_android_app
+      dockerfile: Dockerfile
+      args:
+        CRYZE_RTSP_SERVER: "localhost"
+        CRYZE_BACKEND_URL: "http://10.10.20.216:8080"
+    privileged: true
+    command:
+      - androidboot.use_memfd=1
+      - androidboot.redroid_net_ndns=2
+      - androidboot.redroid_net_dns1=10.10.0.1
+      - androidboot.redroid_net_dns2=8.8.8.8
+      - androidboot.redroid_gpu_mode=guest
+  cryze_api:
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    networks:
+      lan:
+        ipv4_address: 10.10.20.216
+    build:
+      context: ./cryze_api_python
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

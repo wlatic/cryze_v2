@@ -1,4 +1,4 @@
-FROM openjdk:18-jdk-slim AS app-builder
+FROM eclipse-temurin:18-jdk-jammy AS app-builder
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -41,10 +41,10 @@ ENV DOCKER="true"
 # Install required Android CMD-line tools
 #============================================
 RUN wget https://dl.google.com/android/repository/${ANDROID_CMD} -P /tmp && \
-              unzip -d $ANDROID_SDK_ROOT /tmp/$ANDROID_CMD && \
-              mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/tools && \
-              cd $ANDROID_SDK_ROOT/cmdline-tools && \
-              mv NOTICE.txt source.properties bin lib tools/
+    unzip -d $ANDROID_SDK_ROOT /tmp/$ANDROID_CMD && \
+    mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/tools && \
+    cd $ANDROID_SDK_ROOT/cmdline-tools && \
+    mv NOTICE.txt source.properties bin lib tools/
 
 #============================================
 # Install required package using SDK manager
