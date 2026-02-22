@@ -45,16 +45,51 @@ This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redr
 
 LXC shares the Proxmox host kernel, so binder setup is done on the **host only** — no kernel configuration inside the container.
 
-**Step 1: Proxmox host setup (one-time)**
-```bash
-# On the Proxmox host (NOT inside the LXC container)
-# Debian 13 / PVE 8+ kernels include binder_linux
-printf 'options binder_linux devices=binder,hwbinder,vndbinder\n' > /etc/modprobe.d/binder.conf
-update-initramfs -u
-reboot
+**Step 1: Proxmox host — binder setup (one-time)**
 
-# After reboot, verify:
+Run these commands on the **Proxmox host** (not inside the LXC):
+
+```bash
+# 1) Ensure binder_linux module loads at boot
+printf "binder_linux\n" > /etc/modules-load.d/binder_linux.conf
+
+# 2) Create a boot script to mount binderfs and create device nodes
+cat > /usr/local/sbin/binder-setup <<'EOF'
+#!/bin/sh
+set -eu
+mkdir -p /dev/binderfs
+mountpoint -q /dev/binderfs || mount -t binder binder /dev/binderfs
+for d in binder hwbinder vndbinder; do
+  [ -e "/dev/binderfs/$d" ] || echo "$d" > /dev/binderfs/binder-control
+done
+ln -sf /dev/binderfs/binder /dev/binder
+ln -sf /dev/binderfs/hwbinder /dev/hwbinder
+ln -sf /dev/binderfs/vndbinder /dev/vndbinder
+EOF
+chmod +x /usr/local/sbin/binder-setup
+
+# 3) Create a systemd one-shot unit so binder is ready before containers start
+cat > /etc/systemd/system/binder-setup.service <<'EOF'
+[Unit]
+Description=Setup binderfs and /dev/binder* nodes
+After=systemd-modules-load.service
+Before=pve-container.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/binder-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now binder-setup.service
+
+# 4) Verify
 lsmod | grep binder          # should show: binder_linux
+ls /dev/binderfs/             # should show: binder, hwbinder, vndbinder
 ```
 
 **Step 2: Create a privileged LXC container in Proxmox**
@@ -62,6 +97,32 @@ lsmod | grep binder          # should show: binder_linux
 - Check: **Privileged container**
 - Features: enable **Nesting** and **keyctl**
 - Network: bridge to your LAN (e.g. `vmbr0`), DHCP or static IP
+
+Then add device passthrough to the LXC config. First, check your device major numbers on the **Proxmox host**:
+```bash
+# Find binder major number (dynamically allocated)
+ls -la /dev/binderfs/binder
+# Example output: crw-rw-rw- 1 root root 508, 0 ...
+#                                          ^^^ this is your binder major number
+
+# Find iGPU major number
+ls -la /dev/dri/renderD128
+# Example output: crw-rw---- 1 root render 226, 128 ...
+#                                           ^^^ this is your DRI major number
+```
+
+Edit the LXC config (`/etc/pve/lxc/<id>.conf`) using **your** major numbers:
+```ini
+# Binder passthrough (required for Redroid)
+# Replace 508 with your binder major number from above
+lxc.cgroup2.devices.allow: c 508:* rwm
+lxc.mount.entry: /dev/binderfs dev/binderfs none bind,create=dir 0 0
+
+# iGPU passthrough (optional, for Frigate hardware acceleration)
+# Replace 226 with your DRI major number from above
+lxc.cgroup2.devices.allow: c 226:* rwm
+lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir 0 0
+```
 
 **Step 3: Inside the LXC container**
 ```bash
@@ -71,7 +132,7 @@ curl -fsSL https://get.docker.com | sh
 
 # Verify binder is available (inherited from host)
 ls /dev/binderfs/ 2>/dev/null || ls /dev/binder 2>/dev/null
-# If neither exists, check that the Proxmox host has binder loaded
+# If neither exists, check that the Proxmox host has binder-setup.service running
 ```
 
 > **Note:** In LXC, your network interface is `eth0` (not `ens18`). Set `LAN_INTERFACE=eth0` in your `.env`.
@@ -85,20 +146,53 @@ ls /dev/binderfs/ 2>/dev/null || ls /dev/binder 2>/dev/null
 - Machine: `q35`
 - BIOS: `OVMF (UEFI)` or `SeaBIOS`
 
+Run inside the VM or on the bare-metal server:
+
 ```bash
 # 1. Install Docker
 apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 
-# 2. Configure binder
-printf 'options binder_linux devices=binder,hwbinder,vndbinder\n' > /etc/modprobe.d/binder.conf
-update-initramfs -u
+# 2. Ensure binder_linux module loads at boot
+printf "binder_linux\n" > /etc/modules-load.d/binder_linux.conf
 
-# 3. Reboot
-reboot
+# 3. Create a boot script to mount binderfs and create device nodes
+cat > /usr/local/sbin/binder-setup <<'EOF'
+#!/bin/sh
+set -eu
+mkdir -p /dev/binderfs
+mountpoint -q /dev/binderfs || mount -t binder binder /dev/binderfs
+for d in binder hwbinder vndbinder; do
+  [ -e "/dev/binderfs/$d" ] || echo "$d" > /dev/binderfs/binder-control
+done
+ln -sf /dev/binderfs/binder /dev/binder
+ln -sf /dev/binderfs/hwbinder /dev/hwbinder
+ln -sf /dev/binderfs/vndbinder /dev/vndbinder
+EOF
+chmod +x /usr/local/sbin/binder-setup
 
-# 4. Verify binder is loaded
+# 4. Create a systemd one-shot unit
+cat > /etc/systemd/system/binder-setup.service <<'EOF'
+[Unit]
+Description=Setup binderfs and /dev/binder* nodes
+After=systemd-modules-load.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/binder-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now binder-setup.service
+
+# 5. Verify
 lsmod | grep binder          # should show: binder_linux
+ls /dev/binderfs/             # should show: binder, hwbinder, vndbinder
 ```
 
 > **Troubleshooting:** If `modprobe binder_linux` fails, your kernel doesn't have binder support. Make sure you're on **Debian 13 (Trixie)** or newer — older distros need a [custom kernel](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md).
