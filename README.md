@@ -25,9 +25,7 @@ THANK YOU to Carson Loyal (carTloyal123) for the libraries to connect and get st
 
 This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redroid-doc), which needs a Linux kernel with **binder** support. It does **not** work on Docker Desktop (Windows/Mac), WSL2, or most cloud VMs.
 
-**Recommended OS:** Debian 13 (Trixie) — its kernel (`6.8+`) includes `binder_linux` as a module out of the box, no custom kernel needed.
-
-> ⚠️ **Debian 12 (Bookworm) will NOT work** — its default kernel (`6.1.x`) does not include `binder_linux`.
+> ⚠️ **Debian 12 (Bookworm) will NOT work** — its default kernel (`6.1.x`) does not include `binder_linux`. Use **Debian 13 (Trixie)** or newer.
 
 **Minimum specs:**
 | Resource | Cryze Only | Full Stack (+ Frigate + Wyze Bridge) |
@@ -36,30 +34,70 @@ This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redr
 | RAM | 4 GB | 8+ GB |
 | Disk | 16 GB | 64+ GB (Frigate recordings) |
 
-**Proxmox VM settings:**
+**Supported hosts:**
+- Proxmox LXC (Debian 13 Trixie) ✅ **recommended** — simplest setup
+- Bare-metal Linux server (Debian 13 / Ubuntu 24.04) ✅
+- Proxmox VM (Debian 13 Trixie) ✅
+
+---
+
+#### Option A: Proxmox LXC (Recommended)
+
+LXC shares the Proxmox host kernel, so binder setup is done on the **host only** — no kernel configuration inside the container.
+
+**Step 1: Proxmox host setup (one-time)**
+```bash
+# On the Proxmox host (NOT inside the LXC container)
+# Debian 13 / PVE 8+ kernels include binder_linux
+printf 'options binder_linux devices=binder,hwbinder,vndbinder\n' > /etc/modprobe.d/binder.conf
+update-initramfs -u
+reboot
+
+# After reboot, verify:
+lsmod | grep binder          # should show: binder_linux
+```
+
+**Step 2: Create a privileged LXC container in Proxmox**
+- Template: **Debian 13 (Trixie)**
+- Check: **Privileged container**
+- Features: enable **Nesting** and **keyctl**
+- Network: bridge to your LAN (e.g. `vmbr0`), DHCP or static IP
+
+**Step 3: Inside the LXC container**
+```bash
+# Install Docker
+apt update && apt install -y curl git
+curl -fsSL https://get.docker.com | sh
+
+# Verify binder is available (inherited from host)
+ls /dev/binderfs/ 2>/dev/null || ls /dev/binder 2>/dev/null
+# If neither exists, check that the Proxmox host has binder loaded
+```
+
+> **Note:** In LXC, your network interface is `eth0` (not `ens18`). Set `LAN_INTERFACE=eth0` in your `.env`.
+
+---
+
+#### Option B: Proxmox VM or Bare Metal
+
+**VM settings (Proxmox):**
 - CPU Type: `host` (required for Redroid)
 - Machine: `q35`
 - BIOS: `OVMF (UEFI)` or `SeaBIOS`
 
-**Supported hosts:**
-- Proxmox VM (Debian 13 Trixie) ✅ recommended
-- Bare-metal Linux server (Debian 13 / Ubuntu 24.04) ✅
-- Proxmox LXC ✅ (advanced — requires nesting, see [Redroid LXC guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md))
-
-**Host setup (one-time, after installing Debian 13):**
 ```bash
 # 1. Install Docker
 apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 
-# 2. Configure binder (Debian 13 has the module, just needs the devices set)
+# 2. Configure binder
 printf 'options binder_linux devices=binder,hwbinder,vndbinder\n' > /etc/modprobe.d/binder.conf
 update-initramfs -u
 
 # 3. Reboot
 reboot
 
-# 4. After reboot, verify binder is loaded
+# 4. Verify binder is loaded
 lsmod | grep binder          # should show: binder_linux
 ```
 
@@ -83,7 +121,7 @@ WYZE_KEY_ID=your_key_id        # from https://developer-api-console.wyze.com/
 WYZE_API_KEY=your_api_key
 
 # Network — adjust for your LAN
-LAN_INTERFACE=ens18             # run 'ip link' to find yours
+LAN_INTERFACE=eth0              # 'eth0' for LXC, 'ens18' for VM — run 'ip link' to check
 LAN_SUBNET=10.10.0.0/16        # your LAN subnet
 LAN_GATEWAY=10.10.0.1          # your router IP
 LAN_IP_RANGE=10.10.20.208/29   # unused IP range for containers
