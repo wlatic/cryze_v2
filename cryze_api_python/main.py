@@ -346,8 +346,8 @@ def get_messages():
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     
-    android_ip = os.getenv("CRYZE_ANDROID_IP")
-    rtsp_port_env = os.getenv("RTSP_PORT_EXTERNAL", "18554")
+    android_ip = os.getenv("CRYZE_ANDROID_IP") or os.getenv("CONTAINER_IP")
+    rtsp_port_env = os.getenv("RTSP_PORT_EXTERNAL", "8554")
     
     if android_ip:
         rtsp_host_js_logic = f"'{android_ip}'"
