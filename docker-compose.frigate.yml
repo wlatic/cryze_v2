@@ -68,6 +68,7 @@ services:
       API_KEY: ${WYZE_API_KEY}
       # Quality: 1=SD, 2=HD (default), 3=Auto
       QUALITY: ${WYZE_BRIDGE_QUALITY:-2}
+      WB_AUTH: "false"
       # Only bridge non-GW cameras (GW cameras go through Cryze)
       # Set FILTER_NAMES or FILTER_MODELS in .env to control which cameras
       # Example: FILTER_MODELS=WYZEC1-JZ,WYZECP1_JEF (exclude GW models)
