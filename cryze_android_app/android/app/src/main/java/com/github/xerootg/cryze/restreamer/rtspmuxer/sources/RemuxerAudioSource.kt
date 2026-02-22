@@ -28,7 +28,7 @@ class RemuxerAudioSource(
     private var samplerate = 0
     private var framesProcessed = 0L
 
-    private val mTaskThread: HandlerThread = HandlerThread("AudioSenderThread")
+    private val mTaskThread: HandlerThread = HandlerThread("AudioSenderThread").also { it.start() }
     private val mTaskTHandler: Handler by lazy { Handler(mTaskThread.looper) }
 
     override fun init(aVHeader: AVHeader?) {
@@ -176,13 +176,15 @@ class RemuxerAudioSource(
 
     override var postToMuxer = false
     override fun startStream() {
-        mTaskThread.start()
+        LogUtils.i(TAG, "startStream")
         postToMuxer = true
     }
 
     override fun stopStream() {
+        LogUtils.i(TAG, "stopStream")
         postToMuxer = false
-        mTaskThread.quitSafely()
+        // mTaskThread.quitSafely() // DO NOT QUIT THE THREAD. IT CANNOT BE RESTARTED.
+        // Just stop posting to the muxer. The thread can idle.
     }
 
     override fun toString(): String {
