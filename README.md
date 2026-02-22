@@ -261,7 +261,7 @@ This starts:
 
 Access points:
 - Cryze API / Dashboard: `http://<API_IP>:8080`
-- Frigate UI: `http://<FRIGATE_IP>:8971`
+- Frigate UI: `http://<FRIGATE_IP>:5000`
 - Wyze Bridge UI: `http://<WYZE_BRIDGE_IP>:5000`
 - Cryze streams: `rtsp://<CONTAINER_IP>:8554/live/<name>`
 - Wyze Bridge streams: `rtsp://<WYZE_BRIDGE_IP>:8554/<name>`
