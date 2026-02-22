@@ -122,7 +122,15 @@ lxc.mount.entry: /dev/binderfs dev/binderfs none bind,create=dir 0 0
 # Replace 226 with your DRI major number from above
 lxc.cgroup2.devices.allow: c 226:* rwm
 lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir 0 0
+
+# Allow Docker to set network sysctls (required)
+lxc.mount.entry: /proc/sys/net proc/sys/net none rw,bind 0 0
+
+# Disable AppArmor (Docker manages its own security)
+lxc.apparmor.profile: unconfined
 ```
+
+> **Important:** After editing the LXC config, do a full stop + start from Proxmox (`pct stop <id>` / `pct start <id>`), not just a restart.
 
 **Step 3: Inside the LXC container**
 ```bash
@@ -252,7 +260,8 @@ This starts:
 | **Frigate** | Recording + AI detection | All cameras |
 
 Access points:
-- Frigate UI: `http://<FRIGATE_IP>:5000`
+- Cryze API / Dashboard: `http://<API_IP>:8080`
+- Frigate UI: `http://<FRIGATE_IP>:8971`
 - Wyze Bridge UI: `http://<WYZE_BRIDGE_IP>:5000`
 - Cryze streams: `rtsp://<CONTAINER_IP>:8554/live/<name>`
 - Wyze Bridge streams: `rtsp://<WYZE_BRIDGE_IP>:8554/<name>`
