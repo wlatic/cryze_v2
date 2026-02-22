@@ -38,29 +38,58 @@ This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redr
 - CPU Type: `host` (required for Redroid)
 - Machine: `q35`
 - BIOS: `OVMF (UEFI)` or `SeaBIOS`
-- Enable: Nesting (Options → Processor → Enable Nesting)
 
 **Supported hosts:**
 - Proxmox VM (Debian 12 Minimal) ✅ recommended
 - Bare-metal Linux server ✅
-- Proxmox LXC with nesting ✅ (advanced)
+- Proxmox LXC ✅ (advanced — requires nesting enabled, see [Redroid LXC guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md))
 
-**Kernel setup (one-time, after installing Debian):**
+**Kernel & binder setup (one-time, after installing Debian):**
 ```bash
-# Install Docker
+# 1. Install Docker
 apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 
-# Install kernel headers and load binder module
+# 2. Install kernel headers
 apt install -y linux-headers-$(uname -r)
-modprobe binder_linux devices=binder,hwbinder,vndbinder
-echo "binder_linux" >> /etc/modules
 
-# Verify
-ls /dev/binderfs/  # should show binder, hwbinder, vndbinder
+# 3. Load binder module with required devices
+modprobe binder_linux devices=binder,hwbinder,vndbinder
+
+# 4. Persist binder module across reboots
+cat > /etc/modules-load.d/redroid.conf << 'EOF'
+binder_linux
+# Networking modules for Docker macvlan + iptables
+br_netfilter
+iptable_nat
+iptable_filter
+nf_nat
+xt_conntrack
+nf_conntrack
+xt_masquerade
+EOF
+
+# 5. Configure binder devices parameter
+cat > /etc/modprobe.d/redroid.conf << 'EOF'
+options binder_linux devices=binder,hwbinder,vndbinder
+EOF
+
+# 6. Mount binderfs (Redroid handles this internally in privileged mode,
+#    but mounting it on the host lets you verify the module is working)
+mkdir -p /dev/binderfs
+mount -t binder binder /dev/binderfs
+
+# 7. Persist binderfs mount across reboots (optional, Docker handles it)
+echo "binder /dev/binderfs binder defaults 0 0" >> /etc/fstab
+
+# 8. Verify everything
+lsmod | grep binder          # should show: binder_linux
+ls /dev/binderfs/             # should show: binder, hwbinder, vndbinder
 ```
 
-If your kernel doesn't have `binder_linux`, follow the [Redroid kernel guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md).
+> **Note:** If `modprobe binder_linux` fails with "not found", your kernel doesn't have binder support compiled. You'll need to either:
+> - Use a kernel that includes it (Ubuntu 22.04+ / Debian 12 with `linux-headers-generic` usually has it)
+> - Build a custom kernel — follow the [Redroid kernel guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md)
 
 ### 2. Clone & Configure
 
