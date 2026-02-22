@@ -23,9 +23,11 @@ THANK YOU to Carson Loyal (carTloyal123) for the libraries to connect and get st
 
 ### 1. Host Requirements
 
-This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redroid-doc), which needs specific kernel support. It does **not** work on Docker Desktop (Windows/Mac), WSL2, or most cloud VMs.
+This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redroid-doc), which needs a Linux kernel with **binder** support. It does **not** work on Docker Desktop (Windows/Mac), WSL2, or most cloud VMs.
 
-**Recommended OS:** [Debian 12 Minimal](https://www.debian.org/CD/netinst/) (~300MB installed, smallest stable option with full kernel module support)
+**Recommended OS:** Debian 13 (Trixie) — its kernel (`6.8+`) includes `binder_linux` as a module out of the box, no custom kernel needed.
+
+> ⚠️ **Debian 12 (Bookworm) will NOT work** — its default kernel (`6.1.x`) does not include `binder_linux`.
 
 **Minimum specs:**
 | Resource | Cryze Only | Full Stack (+ Frigate + Wyze Bridge) |
@@ -40,23 +42,20 @@ This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redr
 - BIOS: `OVMF (UEFI)` or `SeaBIOS`
 
 **Supported hosts:**
-- Proxmox VM (Debian 12 Minimal) ✅ recommended
-- Bare-metal Linux server ✅
-- Proxmox LXC ✅ (advanced — requires nesting enabled, see [Redroid LXC guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md))
+- Proxmox VM (Debian 13 Trixie) ✅ recommended
+- Bare-metal Linux server (Debian 13 / Ubuntu 24.04) ✅
+- Proxmox LXC ✅ (advanced — requires nesting, see [Redroid LXC guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md))
 
-**Kernel & binder setup (one-time, after installing Debian):**
+**Host setup (one-time, after installing Debian 13):**
 ```bash
 # 1. Install Docker
 apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 
-# 2. Install kernel headers
-apt install -y linux-headers-$(uname -r)
-
-# 3. Load binder module with required devices
+# 2. Load the binder module
 modprobe binder_linux devices=binder,hwbinder,vndbinder
 
-# 4. Persist binder module across reboots
+# 3. Persist binder module + configure devices parameter
 cat > /etc/modules-load.d/redroid.conf << 'EOF'
 binder_linux
 # Networking modules for Docker macvlan + iptables
@@ -69,27 +68,21 @@ nf_conntrack
 xt_masquerade
 EOF
 
-# 5. Configure binder devices parameter
 cat > /etc/modprobe.d/redroid.conf << 'EOF'
 options binder_linux devices=binder,hwbinder,vndbinder
 EOF
 
-# 6. Mount binderfs (Redroid handles this internally in privileged mode,
-#    but mounting it on the host lets you verify the module is working)
+# 4. Mount binderfs and persist across reboots
 mkdir -p /dev/binderfs
 mount -t binder binder /dev/binderfs
-
-# 7. Persist binderfs mount across reboots (optional, Docker handles it)
 echo "binder /dev/binderfs binder defaults 0 0" >> /etc/fstab
 
-# 8. Verify everything
+# 5. Verify
 lsmod | grep binder          # should show: binder_linux
 ls /dev/binderfs/             # should show: binder, hwbinder, vndbinder
 ```
 
-> **Note:** If `modprobe binder_linux` fails with "not found", your kernel doesn't have binder support compiled. You'll need to either:
-> - Use a kernel that includes it (Ubuntu 22.04+ / Debian 12 with `linux-headers-generic` usually has it)
-> - Build a custom kernel — follow the [Redroid kernel guide](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md)
+> **Troubleshooting:** If `modprobe binder_linux` fails, your kernel doesn't have binder support. Make sure you're on **Debian 13 (Trixie)** or newer — older distros need a [custom kernel](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md).
 
 ### 2. Clone & Configure
 
