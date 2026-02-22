@@ -1,128 +1,132 @@
+# Full stack deployment: Cryze (GW cameras) + Wyze Bridge (non-GW) + Frigate NVR
+#
+# All services get LAN IPs via macvlan for direct camera access.
+# Configuration: copy .env.example to .env and set your values.
+#
+# Usage:
+#   docker compose -f docker-compose.frigate.yml up -d --build
+#
+# Stream sources:
+#   GW cameras (OG, Doorbell Pro) → Cryze → rtsp://CONTAINER_IP:8554/live/<name>
+#   Non-GW cameras (V3, Pan, etc) → Wyze Bridge → rtsp://WYZE_BRIDGE_IP:8554/<name>
+#   All cameras → Frigate for recording/detection
+
 networks:
-  cryze_network:
-    driver: bridge
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: ${LAN_INTERFACE:-ens18}
+    ipam:
+      config:
+        - subnet: ${LAN_SUBNET:-10.10.0.0/16}
+          gateway: ${LAN_GATEWAY:-10.10.0.1}
+          ip_range: ${LAN_IP_RANGE:-10.10.20.208/29}
 
 services:
-  wyze-bridge:
-    container_name: wyze-bridge
-    restart: unless-stopped
-    image: mrlt8/wyze-bridge:latest
-    env_file: # shared credentials with cryze_api
-      - .env
-    networks:
-      - cryze_network
-    ports:
-      - 5004:5000 # WEB-UI
-    environment:
-      - ENABLE_AUDIO=True
-      - AUDIO_CODEC=AAC
-      - ON_DEMAND=False
-      - LLHLS=True
-      - WB_AUTH=False # Set to false to disable web and stream auth.
-
-  # In frigate, add cameras from cryze with a host of cryze_android_app
-  # default path for cameras is live/<camera_nickname>. You can change the route on the cryze_api web app.
-  # eg: rtsp://cryze_android_app:8554/live/doorbell
-  #
-  # use the restreaming profile to reduce latency: 
-  # cameras:
-  # doorbell:
-  #   enabled: True
-  #   ffmpeg:
-  #     retry_interval: 0
-  #     inputs:
-  #       - path: rtsp://127.0.0.1:8554/doorbell
-  #         # I use go2rtc to reencode the stream, your host could also be:
-  #         # rtsp://cryze_android_app:8554/live/<camera_nickname>
-  #         input_args: preset-rtsp-restream
-  #         roles:
-  #           - detect
-  #           - record
-  #           - audio
-  #
-  # consider using go2rtc to reencode the stream, the wyze h264 stream conformance
-  # to standard is okay on a good day.
-  # go2rtc:
-  # streams:
-  #    doorbell:
-  #      - rtsp://cryze_android_app:8554/live/<nickname>
-  #      - "ffmpeg:doorbell#video=h264#audio=aac#hardware"
+  # =========================================
+  # Frigate NVR — recording + AI detection
+  # =========================================
   frigate:
+    image: ghcr.io/blakeshome/frigate:stable
     container_name: frigate
-    privileged: true # this may not be necessary for all setups
     restart: unless-stopped
-    image: ghcr.io/blakeblackshear/frigate:stable
-    shm_size: "256mb" # update for your cameras based on calculation above
     networks:
-      - cryze_network
+      lan:
+        ipv4_address: ${FRIGATE_IP:-10.10.20.210}
     volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config:/config
-      - ./storage:/media/frigate
-      - type: tmpfs # Optional: 1GB of memory, reduces SSD/SD Card wear
+      - ./frigate/config:/config
+      - ./frigate/storage:/media/frigate
+      - type: tmpfs
         target: /tmp/cache
         tmpfs:
-          size: 1000000000
-    ports:
-      - 8971:8971
-      - 5005:5000 # Internal unauthenticated access. Expose carefully.
-      - 8554:8554 # RTSP feeds
-      - 8555:8555/tcp # WebRTC over tcp
-      - 8555:8555/udp # WebRTC over udp
-      - 1984:1984 # go2rtc ui
-      - 1935:1935 # go2rtc incoming rtmp stream
+          size: 1000000000 # 1GB tmpfs for cache
     environment:
-      - FRIGATE_RTSP_PASSWORD="password"
+      FRIGATE_RTSP_PASSWORD: ""
+    # Uncomment if using Coral USB accelerator:
+    # devices:
+    #   - /dev/bus/usb:/dev/bus/usb
+    # Uncomment if using Intel GPU for hardware acceleration:
+    # devices:
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
+    privileged: true
 
-  # Theoretically, go2rtc should be able to listen for RTSP incoming
-  # streams. I've had issues with go2rtc actually supporting RTSP streams. YMMV.
-  # You'll need to compile cryze_android_app with the arg:
-  # CRYZE_RTSP_SERVER: "frigate" (or whatever DNS/IP you use for frigate)
-  # ensure that go2rtc is listening for incoming RTSP streams on port 8554
-  # If all that works, you can remove this mediamtx service.
+  # =========================================
+  # docker-wyze-bridge — non-GW Wyze cameras
+  # (V3, V2, Pan, Outdoor, Floodlight, etc)
+  # =========================================
+  wyze-bridge:
+    image: mrlt8/wyze-bridge:latest
+    container_name: wyze-bridge
+    restart: unless-stopped
+    networks:
+      lan:
+        ipv4_address: ${WYZE_BRIDGE_IP:-10.10.20.211}
+    environment:
+      WYZE_EMAIL: ${WYZE_EMAIL}
+      WYZE_PASSWORD: ${WYZE_PASSWORD}
+      API_ID: ${WYZE_KEY_ID}
+      API_KEY: ${WYZE_API_KEY}
+      # Quality: 1=SD, 2=HD (default), 3=Auto
+      QUALITY: ${WYZE_BRIDGE_QUALITY:-2}
+      # Only bridge non-GW cameras (GW cameras go through Cryze)
+      # Set FILTER_NAMES or FILTER_MODELS in .env to control which cameras
+      # Example: FILTER_MODELS=WYZEC1-JZ,WYZECP1_JEF (exclude GW models)
+    volumes:
+      - ./wyze-bridge:/config
+
+  # =========================================
+  # Cryze — GW-based Wyze cameras
+  # (OG, Doorbell Pro, etc)
+  # =========================================
   mediamtx:
     image: bluenviron/mediamtx:latest-ffmpeg
     network_mode: service:cryze_android_app
-    privileged: true # this may not be necessary for all setups.
-  
+    privileged: true
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: ${CONTAINER_IP:-10.10.20.215}
+      MTX_API: "yes"
+
   cryze_android_app:
     restart: unless-stopped
+    depends_on:
+      cryze_api:
+        condition: service_healthy
     networks:
-      - cryze_network
+      lan:
+        ipv4_address: ${CONTAINER_IP:-10.10.20.215}
     build:
       context: ./cryze_android_app
       dockerfile: Dockerfile
       args:
         CRYZE_RTSP_SERVER: "localhost"
-        CRYZE_BACKEND_URL: "http://cryze_api:8080" # change if you want to host on a different machine
-    privileged: true # this is absolutely necessary for binder, etc. redroid is "working" on it.
-    ports:
-      - 5555:5555
-    # frigate needs to be the outbound ports, mediamtx is a bridge
+        CRYZE_BACKEND_URL: "http://${API_IP:-10.10.20.216}:8080"
+    privileged: true
     command:
-    # arch specifics, see the redroid docs
       - androidboot.use_memfd=1
-    # critical for redroid to be able to resolve DNS queries for containerized services
-      - androidboot.redroid_net_ndns=1
-      - androidboot.redroid_net_dns1=127.0.0.11
-    # not really used but it doesn't hurt to have it. Might save a smidge of CPU at times.
-      - androidboot.redroid_gpu_mode=host
-      - androidboot.redroid_gpu_node=/dev/dri/renderD128
+      - androidboot.redroid_net_ndns=2
+      - androidboot.redroid_net_dns1=${LAN_GATEWAY:-10.10.0.1}
+      - androidboot.redroid_net_dns2=8.8.8.8
+      - androidboot.redroid_gpu_mode=guest
+      - androidboot.zygote=zygote64
+      - ro.config.low_ram=true
+      - dalvik.vm.heapsize=256m
+      - dalvik.vm.heapgrowthlimit=128m
+
   cryze_api:
-    ## volume mount /data
-    ## make sure .env is updated
     restart: unless-stopped
     volumes:
-      - cryze_api_cryze_data:/data
+      - ./data:/app/data
     networks:
-      - cryze_network
+      lan:
+        ipv4_address: ${API_IP:-10.10.20.216}
     build:
-      context: ./cryze_api
+      context: ./cryze_api_python
       dockerfile: Dockerfile
-    ports:
-      - 8080:8080
     env_file:
       - .env
-
-volumes:
-  cryze_api_cryze_data: # used for storing custom camera routes, wyze_sdk credentials/refresh tokens
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

@@ -1,8 +1,8 @@
 # Macvlan-only deployment for direct LAN camera streaming
 #
-# Prerequisites:
-# 1. Host must have a LAN interface (update 'parent' below to match)
-# 2. ip rule fix and service stripping are automated in ensure_running.sh
+# Configuration:
+#   Copy .env.example to .env and set your network values.
+#   All network settings are in .env — no need to edit this file.
 #
 # Usage:
 #   docker compose -f docker-compose.macvlan-only.yml up -d --build
@@ -11,12 +11,12 @@ networks:
   lan:
     driver: macvlan
     driver_opts:
-      parent: ens18 # Change to your host's LAN interface name
+      parent: ${LAN_INTERFACE:-ens18}
     ipam:
       config:
-        - subnet: 10.10.0.0/16 # Your LAN subnet
-          gateway: 10.10.0.1 # Your LAN gateway
-          ip_range: 10.10.20.208/29 # Small range for containers
+        - subnet: ${LAN_SUBNET:-10.10.0.0/16}
+          gateway: ${LAN_GATEWAY:-10.10.0.1}
+          ip_range: ${LAN_IP_RANGE:-10.10.20.208/29}
 
 services:
   mediamtx:
@@ -24,7 +24,8 @@ services:
     network_mode: service:cryze_android_app
     privileged: true
     environment:
-      MTX_WEBRTCADDITIONALHOSTS: 10.10.20.215
+      MTX_WEBRTCADDITIONALHOSTS: ${CONTAINER_IP:-10.10.20.215}
+      MTX_API: "yes"
   cryze_android_app:
     restart: unless-stopped
     depends_on:
@@ -32,18 +33,18 @@ services:
         condition: service_healthy
     networks:
       lan:
-        ipv4_address: 10.10.20.215
+        ipv4_address: ${CONTAINER_IP:-10.10.20.215}
     build:
       context: ./cryze_android_app
       dockerfile: Dockerfile
       args:
         CRYZE_RTSP_SERVER: "localhost"
-        CRYZE_BACKEND_URL: "http://10.10.20.216:8080"
+        CRYZE_BACKEND_URL: "http://${API_IP:-10.10.20.216}:8080"
     privileged: true
     command:
       - androidboot.use_memfd=1
       - androidboot.redroid_net_ndns=2
-      - androidboot.redroid_net_dns1=10.10.0.1
+      - androidboot.redroid_net_dns1=${LAN_GATEWAY:-10.10.0.1}
       - androidboot.redroid_net_dns2=8.8.8.8
       - androidboot.redroid_gpu_mode=guest
       # Memory optimizations
@@ -57,7 +58,7 @@ services:
       - ./data:/app/data
     networks:
       lan:
-        ipv4_address: 10.10.20.216
+        ipv4_address: ${API_IP:-10.10.20.216}
     build:
       context: ./cryze_api_python
       dockerfile: Dockerfile

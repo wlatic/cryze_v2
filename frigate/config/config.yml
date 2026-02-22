@@ -1,0 +1,115 @@
+# Frigate NVR Configuration
+# Docs: https://docs.frigate.video/configuration/
+#
+# This template shows how to configure Frigate with:
+#   - Cryze streams (GW cameras) at rtsp://CONTAINER_IP:8554/live/<name>
+#   - docker-wyze-bridge streams (non-GW) at rtsp://WYZE_BRIDGE_IP:8554/<name>
+#
+# Replace the IPs and camera names below with your actual values from .env
+
+mqtt:
+  enabled: false
+  # Uncomment to enable MQTT for Home Assistant integration:
+  # host: mqtt_broker_ip
+  # port: 1883
+
+detectors:
+  cpu1:
+    type: cpu
+    num_threads: 2
+  # Uncomment for Coral USB:
+  # coral:
+  #   type: edgetpu
+  #   device: usb
+
+# Default recording/detection settings for all cameras
+record:
+  enabled: true
+  retain:
+    days: 7
+    mode: motion
+  events:
+    retain:
+      default: 14
+      mode: active_objects
+
+snapshots:
+  enabled: true
+  retain:
+    default: 14
+
+detect:
+  enabled: true
+  width: 1280
+  height: 720
+  fps: 5
+
+objects:
+  track:
+    - person
+    - car
+    - dog
+    - cat
+
+# =========================================
+# Camera Definitions
+# =========================================
+cameras:
+
+  # --- GW Cameras (via Cryze / MediaMTX) ---
+  # These use RTSP from the Cryze container
+  # URL format: rtsp://<CONTAINER_IP>:8554/live/<camera_name>
+
+  front:
+    ffmpeg:
+      inputs:
+        - path: rtsp://10.10.20.215:8554/live/front
+          roles:
+            - detect
+            - record
+    detect:
+      width: 1920
+      height: 1080
+      fps: 5
+
+  well_house:
+    ffmpeg:
+      inputs:
+        - path: rtsp://10.10.20.215:8554/live/well_house
+          roles:
+            - detect
+            - record
+    detect:
+      width: 1920
+      height: 1080
+      fps: 5
+
+  # --- Non-GW Cameras (via docker-wyze-bridge) ---
+  # These use RTSP from the wyze-bridge container
+  # URL format: rtsp://<WYZE_BRIDGE_IP>:8554/<camera_name>
+  #
+  # Uncomment and adjust for your non-GW cameras:
+
+  # backyard:
+  #   ffmpeg:
+  #     inputs:
+  #       - path: rtsp://10.10.20.211:8554/backyard
+  #         roles:
+  #           - detect
+  #           - record
+  #   detect:
+  #     width: 1920
+  #     height: 1080
+  #     fps: 5
+
+  # garage:
+  #   ffmpeg:
+  #     inputs:
+  #       - path: rtsp://10.10.20.211:8554/garage
+  #         roles:
+  #           - detect
+  #           - record
+  #   detect:
+  #     width: 1920
+  #     height: 1080
+  #     fps: 5

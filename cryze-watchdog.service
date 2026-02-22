@@ -1,0 +1,19 @@
+[Unit]
+Description=Cryze Stream Watchdog - monitors camera streams and auto-restarts
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/root/cryze_v2-main/stream_watchdog.sh
+Restart=always
+RestartSec=10
+EnvironmentFile=-/root/cryze_v2-main/watchdog.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cryze-watchdog
+
+[Install]
+WantedBy=multi-user.target

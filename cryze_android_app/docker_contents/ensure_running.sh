@@ -19,9 +19,26 @@ fi
 # because netd re-adds the rule periodically.
 #=============================================
 fix_network() {
+    # Auto-detect gateway from the container's network config
+    local gw
+    gw=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
+    if [ -z "$gw" ]; then
+        # No default route yet — derive gateway from eth0's subnet
+        # e.g. 10.10.20.215/16 → 10.10.0.1
+        local ip_cidr
+        ip_cidr=$(ip -4 addr show eth0 2>/dev/null | grep inet | awk '{print $2}')
+        if [ -n "$ip_cidr" ]; then
+            local base
+            base=$(echo "$ip_cidr" | cut -d'/' -f1 | cut -d'.' -f1-2)
+            gw="${base}.0.1"
+        fi
+    fi
+
     ip rule del from all unreachable 2>/dev/null
     ip rule add from all lookup main prio 31000 2>/dev/null
-    ip route replace default via 10.10.0.1 dev eth0 2>/dev/null
+    if [ -n "$gw" ]; then
+        ip route replace default via "$gw" dev eth0 2>/dev/null
+    fi
     iptables -F 2>/dev/null
     iptables -P INPUT ACCEPT 2>/dev/null
     iptables -P OUTPUT ACCEPT 2>/dev/null
