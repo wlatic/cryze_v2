@@ -14,17 +14,50 @@ fi
 
 #=============================================
 # Fix Android policy routing for macvlan LAN
-# Android adds "32000: from all unreachable" which blocks traffic not
-# matching fwmark-based rules. Remove it and add fallback to main table.
+# Android's netd adds "32000: from all unreachable" which blocks
+# incoming connections. We fix it here and run a background watchdog
+# because netd re-adds the rule periodically.
 #=============================================
-logwrapper "Applying ip rule fix for macvlan networking"
-ip rule del from all unreachable 2>/dev/null
-ip rule add from all lookup main prio 31000 2>/dev/null
-logwrapper "ip rule fix applied"
+fix_network() {
+    ip rule del from all unreachable 2>/dev/null
+    ip rule add from all lookup main prio 31000 2>/dev/null
+    ip route replace default via 10.10.0.1 dev eth0 2>/dev/null
+    iptables -F 2>/dev/null
+    iptables -P INPUT ACCEPT 2>/dev/null
+    iptables -P OUTPUT ACCEPT 2>/dev/null
+    iptables -P FORWARD ACCEPT 2>/dev/null
+}
+
+logwrapper "Applying initial network fix"
+fix_network
+logwrapper "Network fix applied"
+
+# Background watchdog: re-apply every 10s if netd reverts
+(
+    while true; do
+        sleep 10
+        if ip rule list 2>/dev/null | grep -q unreachable; then
+            fix_network
+            logwrapper "Network fix re-applied (netd reverted)"
+        fi
+    done
+) &
+logwrapper "Network watchdog started"
 
 #=============================================
-# Disable unnecessary Android services/packages
-# Saves ~1.5GB RAM in a headless container
+# Install the app FIRST, before any service stripping
+#=============================================
+if [ -f "/app/app.apk" ]; then
+    logwrapper "Installing cryze with full permissions"
+    pm install --abi arm64-v8a -g --full /app/app.apk >> /dockerlogs
+    logwrapper "App installed"
+else
+    logwrapper "No app.apk found, skipping install"
+fi
+
+#=============================================
+# Disable unnecessary Android packages AFTER install
+# These are confirmed safe to disable and save ~500MB RAM
 #=============================================
 logwrapper "Disabling unnecessary Android packages"
 DISABLE_PKGS="
@@ -43,60 +76,24 @@ com.android.providers.calendar
 com.android.calendar
 com.android.providers.contacts
 com.android.contacts
-com.android.dialer
-com.android.messaging
 com.android.documentsui
-com.android.email
 com.android.music
 "
 for pkg in $DISABLE_PKGS; do
     pm disable-user --user 0 $pkg 2>/dev/null && logwrapper "Disabled $pkg"
 done
+logwrapper "Package stripping done"
 
-#=============================================
-# Stop unnecessary HAL/system services
-# These consume ~100MB+ combined and serve no
-# purpose in a headless streaming container
-#=============================================
-logwrapper "Stopping unnecessary HAL services"
-STOP_SERVICES="
-vendor.bluetooth-1-1
-vendor.gnss-2-1
-vendor.wifi_hal_legacy
-wificond
-vendor.ril-daemon
-vendor.sensors-hal-2-1-mock
-vendor.audio-hal
-audioserver
-cameraserver
-vendor.cas-hal-1-2
-mediadrm
-mediametrics
-incidentd
-statsd
-traced
-traced_probes
-mdnsd
-"
-for svc in $STOP_SERVICES; do
-    setprop ctl.stop $svc 2>/dev/null
-done
-logwrapper "HAL services stopped"
-
-if [ -f "/app/app.apk" ]; then
-    logwrapper "Installing cryze with full permissions"
-    pm install --abi arm64-v8a -g --full /app/app.apk >> /dockerlogs # log the install to docker logs
-    logwrapper "App installed, starting main loop"
-else
-    logwrapper "No app.apk found, skipping install"
-fi
-
+logwrapper "Starting main loop"
 
 while true; do
     if [ "`getprop breakloop`" -eq 1 ]; then
         logwrapper 'breakloop property set, ensure_running exiting loop';
         break;
     fi
+
+    # Re-apply network fix each loop
+    fix_network
 
     logwrapper "Starting cryze"
     am start -n com.github.xerootg.cryze/.MainActivity;
