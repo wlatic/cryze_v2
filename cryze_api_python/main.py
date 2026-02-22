@@ -38,8 +38,8 @@ app = FastAPI()
 # CORS Middlewareation
 WYZE_EMAIL = os.getenv("WYZE_EMAIL")
 WYZE_PASSWORD = os.getenv("WYZE_PASSWORD")
-API_ID = os.getenv("API_ID")
-API_KEY = os.getenv("API_KEY")
+API_ID = os.getenv("WYZE_KEY_ID") or os.getenv("API_ID")
+API_KEY = os.getenv("WYZE_API_KEY") or os.getenv("API_KEY")
 MARS_URL = os.getenv("MARS_URL", "https://wyze-mars-service.wyzecam.com") # Default? Check C# config
 MARS_REGISTER_GW_USER_ROUTE = os.getenv("MARS_REGISTER_GW_USER_ROUTE", "/plugin/mars/v2/regist_gw_user/")
 # Original C# defaults: GW_BE1_, GW_GC1_, GW_GC2_. Using broader GW_ to catch all GWELL variants (DUO, etc.)
