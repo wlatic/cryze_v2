@@ -52,34 +52,15 @@ This runs Android-in-Docker via [Redroid](https://github.com/remote-android/redr
 apt update && apt install -y curl git
 curl -fsSL https://get.docker.com | sh
 
-# 2. Load the binder module
-modprobe binder_linux devices=binder,hwbinder,vndbinder
+# 2. Configure binder (Debian 13 has the module, just needs the devices set)
+printf 'options binder_linux devices=binder,hwbinder,vndbinder\n' > /etc/modprobe.d/binder.conf
+update-initramfs -u
 
-# 3. Persist binder module + configure devices parameter
-cat > /etc/modules-load.d/redroid.conf << 'EOF'
-binder_linux
-# Networking modules for Docker macvlan + iptables
-br_netfilter
-iptable_nat
-iptable_filter
-nf_nat
-xt_conntrack
-nf_conntrack
-xt_masquerade
-EOF
+# 3. Reboot
+reboot
 
-cat > /etc/modprobe.d/redroid.conf << 'EOF'
-options binder_linux devices=binder,hwbinder,vndbinder
-EOF
-
-# 4. Mount binderfs and persist across reboots
-mkdir -p /dev/binderfs
-mount -t binder binder /dev/binderfs
-echo "binder /dev/binderfs binder defaults 0 0" >> /etc/fstab
-
-# 5. Verify
+# 4. After reboot, verify binder is loaded
 lsmod | grep binder          # should show: binder_linux
-ls /dev/binderfs/             # should show: binder, hwbinder, vndbinder
 ```
 
 > **Troubleshooting:** If `modprobe binder_linux` fails, your kernel doesn't have binder support. Make sure you're on **Debian 13 (Trixie)** or newer — older distros need a [custom kernel](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md).

@@ -27,7 +27,7 @@ services:
   # Frigate NVR — recording + AI detection
   # =========================================
   frigate:
-    image: ghcr.io/blakeshome/frigate:stable
+    image: ghcr.io/blakeblackshear/frigate:stable
     container_name: frigate
     restart: unless-stopped
     networks:
